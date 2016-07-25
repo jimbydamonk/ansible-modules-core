@@ -88,9 +88,70 @@ options:
     required: false
     default: null
     version_added: "2.0"
+  image_location:
+    description:
+      - Full path to your AMI manifest in Amazon S3 storage. Only used for S3-based AMI's.
+    required: false
+    default: null
+    version_added: "2.0"
+  action:
+    description:
+      - Whether the ami should be created or registered.
+    choices: [ "create", "register" ]
+    required: true
+    default: create
+    version_added: "2.0"
+  architecture:
+    description:
+      - The architecture of the AMI.
+    choices: [ "i386", "x86_64" ]
+    required: true
+    default: x86_64
+    version_added: "2.0"
+  kernel_id:
+    description:
+      - The ID of the kernel with which to launch the instances
+    required: false
+    default: null
+    version_added: "2.0"
+  root_device_name:
+    description:
+      - The root device name (e.g. /dev/sda1)
+    required: false
+    default: null
+    version_added: "2.0"
+  virtualization_type:
+    description:
+      - The virutalization_type of the image.
+    choices: [ "hvm", "paravirtual" ]
+    required: true
+    default: hvm
+    version_added: "2.0"
+  sriov_net_support:
+    description:
+      - Advanced networking support.
+    choices: [ None, "simple" ]
+    required: false
+    default: null
+    version_added: "2.0"
+  snapshot_id:
+    description:
+      - A snapshot ID for the snapshot to be used as root device for the image. Mutually exclusive with device_mapping, requires root_device_name
+    required: false
+    default: null
+    version_added: "2.0"
+  delete_root_volume_on_termination:
+    description:
+      - Whether to delete the root volume of the image after instance termination. Only applies when creating image from snapshot_id. Defaults to False. Note that leaving volumes behind after instance termination is not free.
+    required: false
+    default: null
+    version_added: "2.0"
+
 author:
-    - "Evan Duffield (@scicoin-project) <eduffield@iacquire.com>"
-    - "Constantin Bugneac (@Constantin07) <constantin.bugneac@endava.com>"
+  - "Evan Duffield (@scicoin-project) <eduffield@iacquire.com>"
+  - "Constantin Bugneac (@Constantin07) <constantin.bugneac@endava.com>"
+  - "Mike Buzzetti (@jimbydamonk) <mike.buzzetti@gmail.com>"
+
 extends_documentation_fragment:
     - aws
     - ec2
@@ -152,6 +213,15 @@ EXAMPLES = '''
         - device_name: /dev/sdb
           no_device: yes
   register: instance
+
+# Register AMI from snapshot
+- ec2_ami:
+    action: register
+    virtualization_type: hvm
+    root_device_name: /dev/sda1
+    snapshot_id: snap-xxxxxx
+    name: newtest
+    region: xxxxxx
 
 # Deregister/Delete AMI (keep associated snapshots)
 - ec2_ami:
@@ -352,6 +422,13 @@ def create_image(module, ec2):
 
     instance_id = module.params.get('instance_id')
     name = module.params.get('name')
+    snapshot_id = module.params.get('snapshot_id')
+    root_device_name = module.params.get('root_device_name')
+    kernel_id = module.params.get('kernel_id')
+    virtualization_type = module.params.get('virtualization_type')
+    image_location = module.params.get('image_location')
+    delete_root_volume_on_termination = module.params.get('delete_root_volume_on_termination')
+    sriov_net_support = module.params.get('sriov_net_support')
     wait = module.params.get('wait')
     wait_timeout = int(module.params.get('wait_timeout'))
     description = module.params.get('description')
@@ -365,6 +442,15 @@ def create_image(module, ec2):
                   'name': name,
                   'description': description,
                   'no_reboot': no_reboot}
+
+        register_params = {'snapshot_id': snapshot_id,
+                           'root_device_name': root_device_name,
+                           'kernel_id': kernel_id,
+                           'virtualization_type': virtualization_type,
+                           'name': name,
+                           'image_location': image_location,
+                           'delete_root_volume_on_termination': delete_root_volume_on_termination,
+                           'sriov_net_support': sriov_net_support}
 
         images = ec2.get_all_images(filters={'name': name})
 
@@ -381,8 +467,13 @@ def create_image(module, ec2):
                 bd = BlockDeviceType(**device)
                 bdm[device_name] = bd
             params['block_device_mapping'] = bdm
+            register_params['block_device_mapping'] = bdm
 
-        image_id = ec2.create_image(**params)
+        if instance_id:
+            image_id = ec2.create_image(**params)
+        if snapshot_id:
+            image_id = ec2.register_image(**register_params)
+
     except boto.exception.BotoServerError as e:
         module.fail_json(msg="%s: %s" % (e.error_code, e.error_message))
 
@@ -509,7 +600,16 @@ def update_image(module, ec2):
 def main():
     argument_spec = ec2_argument_spec()
     argument_spec.update(dict(
+            action = dict(default='create'),
             instance_id = dict(),
+            snapshot_id = dict(),
+            root_device_name = dict(),
+            kernel_id = dict(),
+            virtualization_type = dict(),
+            image_location = dict(),
+            architecture = dict(default='x86_64'),
+            delete_root_volume_on_termination = dict(type='bool', default=False),
+            sriov_net_support = dict(),
             image_id = dict(),
             delete_snapshot = dict(default=False, type='bool'),
             name = dict(),
@@ -544,12 +644,47 @@ def main():
             # Update image's launch permissions
             update_image(module, ec2)
 
-        # Changed is always set to true when provisioning new AMI
-        if not module.params.get('instance_id'):
-            module.fail_json(msg='instance_id parameter is required for new image')
+        if module.params.get('action') not in ['create','register']:
+            module.fail_json(msg='action must be create or register')
+
+        if module.params.get('action') == "create":
+            # Changed is always set to true when provisioning new AMI
+            if not module.params.get('instance_id'):
+                module.fail_json(msg='instance_id is required for new image')
+
+        if module.params.get('action') == "register":
+            if not module.params.get('virtualization_type'):
+                module.fail_json(
+                    msg='virtualization_type is required for new image')
+
+            if module.params.get('virtualization_type') not in ['paravirtual', 'hvm']:
+                module.fail_json(msg='virtualization_type must be either paravirtual or hvm')
+
+            if not module.params.get('snapshot_id') and \
+               not module.params.get('device_mapping'):
+                module.fail_json(msg='either snapshot_id or device_mapping '
+                                     'is required for new image')
+
+            if module.params.get('snapshot_id') and \
+               module.params.get('device_mapping'):
+                module.fail_json(msg='device_mapping is mutually '
+                                     'exclusive with snapshot_id')
+
+            if module.params.get('architecture') not in ['x86_64', 'i386']:
+                module.fail_json(msg='architecture must be eith x86_64 or i386')
+
+            if module.params.get('delete_root_volume_on_termination') and not \
+               module.params.get('snapshot_id'):
+                module.fail_json(msg='snapshot_id is required when using delete_root_volume_on_termination')
+
+            if module.params.get('sriov_net_support') and \
+               module.params.get('sriov_net_support') not in [None, 'simple']:
+                module.fail_json(msg='sriov_net_support must be simple or not set')
+
         if not module.params.get('name'):
             module.fail_json(msg='name parameter is required for new image')
         create_image(module, ec2)
+
 
 
 # import module snippets
