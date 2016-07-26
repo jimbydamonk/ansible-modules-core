@@ -93,59 +93,59 @@ options:
       - Full path to your AMI manifest in Amazon S3 storage. Only used for S3-based AMI's.
     required: false
     default: null
-    version_added: "2.0"
+    version_added: "2.2"
   action:
     description:
       - Whether the ami should be created or registered.
     choices: [ "create", "register" ]
     required: true
     default: create
-    version_added: "2.0"
+    version_added: "2.2"
   architecture:
     description:
       - The architecture of the AMI.
     choices: [ "i386", "x86_64" ]
     required: true
     default: x86_64
-    version_added: "2.0"
+    version_added: "2.2"
   kernel_id:
     description:
       - The ID of the kernel with which to launch the instances
     required: false
     default: null
-    version_added: "2.0"
+    version_added: "2.2"
   root_device_name:
     description:
-      - The root device name (e.g. /dev/sda1)
+      - The root device name (e.g. C(/dev/sda1))
     required: false
     default: null
-    version_added: "2.0"
+    version_added: "2.2"
   virtualization_type:
     description:
-      - The virutalization_type of the image.
+      - The type of virtualization to use for this image of the image.
     choices: [ "hvm", "paravirtual" ]
     required: true
     default: hvm
-    version_added: "2.0"
+    version_added: "2.2"
   sriov_net_support:
     description:
-      - Advanced networking support.
+      - Advanced networking support. Set to simple to enable enhance networking with the Intel 82599 Virtual Function interface image. This option is supported only for C(virtualization_type=hvm) AMIs. Specifying this option with a PV AMI can make instances launched from the AMI unreachable.
     choices: [ None, "simple" ]
     required: false
     default: null
-    version_added: "2.0"
+    version_added: "2.2"
   snapshot_id:
     description:
       - A snapshot ID for the snapshot to be used as root device for the image. Mutually exclusive with device_mapping, requires root_device_name
     required: false
     default: null
-    version_added: "2.0"
+    version_added: "2.2"
   delete_root_volume_on_termination:
     description:
       - Whether to delete the root volume of the image after instance termination. Only applies when creating image from snapshot_id. Defaults to False. Note that leaving volumes behind after instance termination is not free.
     required: false
     default: null
-    version_added: "2.0"
+    version_added: "2.2"
 
 author:
   - "Evan Duffield (@scicoin-project) <eduffield@iacquire.com>"
